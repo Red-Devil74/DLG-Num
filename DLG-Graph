@@ -249,6 +249,7 @@ function drawgraph (context)
   if state >= -1 and state < 2 then
     lcd.drawText (x+3,y+height-21, stateTxt[state+2],INVERS)
   end
+  
 end 
 --
 --
