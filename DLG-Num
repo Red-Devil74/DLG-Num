@@ -1,0 +1,219 @@
+local options = {
+  { 'Floorht', VALUE, 2, 0, 10},
+  { 'Txt', COLOR, WHITE },
+  { 'Interval', VALUE, 8, 1, 35 }
+}
+--
+local statusTxt = {"Stopped","Initialised","Ready","Launch!","Gliding"}
+record_Values = {}					-- tabel for the best values
+record_Values["maxAlt"] = 0	-- set record values to 0
+record_Values["launchAlt"] = 0
+record_Values["fltTime"] = 0
+--nxtRow = 0							--variable for displaying text propperly
+rowHeight = 22						--standard row height
+launchNr = 0
+launchAlt = 0
+floor = 2				-- altitude threshold for starting and stopping the flight (m)
+status = 0
+maximumAlt = 0  
+fliteTime = 0
+
+
+
+local function create (zone, options)
+--  ============================================================================
+--	create initialiseert een nieuwe instantie van de widget 
+--	en maakt de context aan waarop alle instellingen / data 
+--	van die widget instantie worden opgeslagen
+--  ============================================================================
+  local context = { zone=zone, options=options}
+  switchFId = getFieldInfo('sf').id
+  altSensorId = getFieldInfo('Alt').id
+  return context
+end
+
+local function update (context, options)
+--  ============================================================================
+--	  update wordt aangeroepen als je de opties van de widget aanpast
+--  ============================================================================
+  context.options = options
+  --context.index = 0
+end
+
+local function refresh (context)
+--  ============================================================================
+--	refresh functie wordt aangeroepen wanneer de widget het scherm moet vullen. 
+--	Dit is voornamelijk het tekenen en dergelijke, maar hier kan je ook berekeningen uitvoeren
+--  ============================================================================
+  getnum (context)
+  drawnum (context)
+end
+local function background (context)
+--  ============================================================================
+--	background functie wordt aangeroepen als de widget niet actief op het scherm is (andere scherm in beeld)
+--  ============================================================================
+  getnum (context)
+end
+-- ==============
+-- end of main blocks. Below blocks will be called above
+-- ==============
+function resetvars (context)
+  --yMax = yMaxInit
+  --xMax = xMaxInit
+  status = 0
+  startTime = 0
+  currentTime = 0
+  launchAlt = 0					-- reset flight launch altitude
+  maximumAlt = 0					-- reset flight max altitude
+  fliteTime = 0					-- reset flight duration
+  --print("DLG-num debug: ","data reset")
+end
+--
+function getnum (context) 
+  --print(" floor - Text - Interval: ",context.options.floorht,context.options.Text,context.options.Interval)
+  --floor = context.options.Floorht  
+  --print( "f3K-debug: ",floor) 
+  returnVal = 0
+  x = context.zone.x
+  y = context.zone.y
+  width = context.zone.w
+  height = context.zone.h
+  switchF = getValue (switchFId)				-- get value of switch F (Tx launch mode)
+  currentAlt = getValue (altSensorId)
+  --  ======================
+  --	status 0 = Init
+  --	status 1 = Ready
+  --	status 2 = launch climb
+  --	status 3 = gliding
+  --	status -1 = Stopped
+  --  ======================
+  currentTime = getTime()/100
+  --print("F3K-num debug: State, swF", status,switchF)
+  --print("status / state",status,state)
+  if status == 0 and switchF > 0 then					-- if SF was moved to launch mode from "init/stop" status
+    resetvars (context)								-- reset graph data & scale
+    status = 1									-- change status to "ready"
+  elseif status == 1 and switchF < 0 and currentAlt < floor then				-- if launch mode is ended without a flight
+    status = 0									-- change status to "stop"
+  elseif status == 1 and currentAlt > floor then	-- if launch detected in "ready" status
+    startTime = currentTime
+    maximumAlt = math.max (currentAlt,maximumAlt)
+    launchAlt = maximumAlt							-- set launch altitude
+    status = 2									-- change status to "launch climb"
+    launchNr = launchNr + 1							-- increment the launch number
+  elseif status == 2 and currentAlt < maximumAlt then		-- if in "launch climb" and altitude decreases
+    --launchAlt = currentAlt							-- set launch altitude
+    playNumber (launchAlt*10,9,PREC1)
+    status = 3									-- set status = "gliding"
+  elseif status > 1 and currentAlt < floor then		-- if "in flight" and altitude drops below X
+    --print("F3K-num 5: ",launchNr,switchF,status,currentAlt,maximumAlt)
+--  elseif status == -1 then
+    status = -1									-- change status to "stop" but keep graph on screen
+
+--
+  elseif status == -1 and switchF > 0 then							-- motivate script to initialise, and go to status 0
+    status = 0
+  end
+--
+  if status > 1 then
+    fliteTime = currentTime-startTime						-- calculate the flight duration (min:sec)
+    maximumAlt = math.max (currentAlt,maximumAlt)
+  end
+  if status == 2 then
+    launchAlt = currentAlt
+  end
+  if  status == -1 then
+    -- =============================
+    -- put record values in table
+    -- =============================
+    if maximumAlt > record_Values["maxAlt"] then
+      record_Values["maxAlt"] = maximumAlt
+    elseif launchAlt > record_Values["launchAlt"] then
+      record_Values["launchAlt"] = launchAlt
+    elseif fliteTime > record_Values["fltTime"] then
+      record_Values["fltTime"] = fliteTime
+    end
+    --print("Records, Max Alt, Launch Alt, Flitetime",record_Values["maxAlt"],record_Values["launchAlt"],record_Values["fltTime"])
+
+  end
+
+
+
+end
+-- 
+--
+function drawnum (context)
+  lcd.setColor (CUSTOM_COLOR, WHITE)
+  lcd.drawRectangle (x,y,width,height,SOLID+CUSTOM_COLOR)
+  rowCount = 0
+  dataPoint = 130
+-- =================================
+-- Start display of data and history
+-- =================================
+  lcd.setColor (CUSTOM_COLOR, RED)
+  lcd.drawFilledRectangle (x + 1, y + rowHeight * rowCount , width - 2, rowHeight, CUSTOM_COLOR)
+  lcd.setColor (CUSTOM_COLOR, WHITE)
+  lcd.drawRectangle (x, y + rowHeight * rowCount, width, rowHeight, CUSTOM_COLOR)  
+  lcd.drawText (x + 5, y + rowHeight * rowCount, "Current Session", CUSTOM_COLOR)
+  rowCount = rowCount +1
+
+  if status == 1 then
+    lcd.drawText  (x + 5,  y + rowHeight * rowCount,"Launch#", INVERS + CUSTOM_COLOR + BLINK)			--show launch nr
+    lcd.drawText  (x + dataPoint - 10, y + rowHeight*rowCount,":", CUSTOM_COLOR)
+    lcd.drawNumber (x + dataPoint,  y + rowHeight * rowCount, launchNr, INVERS + CUSTOM_COLOR + BLINK)
+    --print("Custom color",CUSTOM_COLOR,"Invers + Blink")
+  end
+  if status ~= 1 then
+    lcd.drawText  (x + 5,  y + rowHeight * rowCount,"Launch#", CUSTOM_COLOR)			--show launch nr
+    lcd.drawText  (x + dataPoint - 10, y + rowHeight * rowCount,":", CUSTOM_COLOR)
+    lcd.drawNumber (x + dataPoint,  y + rowHeight * rowCount, launchNr, CUSTOM_COLOR)
+    --print("Custom color",CUSTOM_COLOR,"No Blink")
+  end
+  rowCount = rowCount +1
+
+--
+  lcd.drawText (x + 5, y + rowHeight*rowCount, "Launch \194", CUSTOM_COLOR)				-- Launch height. diagonal up-right arrow
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight*rowCount,":", CUSTOM_COLOR)
+  lcd.drawNumber (x + dataPoint, y + rowHeight*rowCount, launchAlt*10, CUSTOM_COLOR+PREC1)	
+  lcd.drawText (x + dataPoint + 50, y + rowHeight * rowCount, "m", CUSTOM_COLOR)
+  rowCount = rowCount +1
+--
+  lcd.drawText  (x + 5, y + rowHeight * rowCount,"Max Alt \192", CUSTOM_COLOR)			-- placeholder for maximumAlt. up arrow, or use char "^" for max alt
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight * rowCount,":", CUSTOM_COLOR)
+  lcd.drawNumber (x + dataPoint, y + rowHeight * rowCount, maximumAlt*10, CUSTOM_COLOR+PREC1)
+  lcd.drawText  (x + dataPoint + 50, y + rowHeight * rowCount,"m", CUSTOM_COLOR)
+  rowCount = rowCount +1
+
+  lcd.drawText (x + 5, y + rowHeight*rowCount, "Time", CUSTOM_COLOR)					-- Flighttime of this launch
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight * rowCount,":", CUSTOM_COLOR)
+  lcd.drawTimer (x + dataPoint, y + rowHeight * rowCount, fliteTime, CUSTOM_COLOR)
+  rowCount = rowCount + 1
+
+  --lcd.drawLine (x, y + rowHeight*rowCount, x + width - 1, y + rowHeight*rowCount, SOLID, CUSTOM_COLOR)
+  --print("DLG-NUM Debug: floor,Txt,Interval",floor,context.options.Floorht,context.options.Txt,context.options.Interval)
+  lcd.setColor (CUSTOM_COLOR, RED)
+  lcd.drawFilledRectangle (x + 1, y + rowHeight * rowCount , width-2, rowHeight, CUSTOM_COLOR)
+  lcd.setColor (CUSTOM_COLOR, WHITE)
+  lcd.drawRectangle (x, y + rowHeight * rowCount, width, rowHeight, CUSTOM_COLOR)  
+  lcd.drawText (x + 5, y + rowHeight * rowCount, "Record values", CUSTOM_COLOR)
+  rowCount = rowCount +1
+
+  lcd.drawText  (x + 5, y + rowHeight * rowCount,"Max Launch \194", CUSTOM_COLOR)
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight * rowCount,":", CUSTOM_COLOR)
+  lcd.drawNumber (x + dataPoint, y + rowHeight * rowCount, record_Values["launchAlt"] * 10, PREC1+CUSTOM_COLOR)
+  lcd.drawText  (x + dataPoint + 50, y + rowHeight * rowCount,"m", CUSTOM_COLOR)
+  rowCount = rowCount +1
+
+  lcd.drawText  (x + 5, y + rowHeight * rowCount,"Max Alt \192", CUSTOM_COLOR)			-- placeholder for maximumAlt. up arrow, or use char "^" for max alt
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight*rowCount,":", CUSTOM_COLOR)
+  lcd.drawNumber (x + dataPoint, y + rowHeight*rowCount, record_Values["maxAlt"] * 10, PREC1+CUSTOM_COLOR)
+  lcd.drawText  (x + dataPoint + 50, y + rowHeight*rowCount,"m", CUSTOM_COLOR)
+  rowCount = rowCount +1
+
+  lcd.drawText (x + 5, y + rowHeight*rowCount, "Max Time", CUSTOM_COLOR)					-- Flighttime of this launch
+  lcd.drawText  (x + dataPoint - 10, y + rowHeight*rowCount,":", CUSTOM_COLOR)
+  lcd.drawTimer (x + dataPoint, y + rowHeight*rowCount, record_Values["fltTime"], CUSTOM_COLOR)
+end 
+--
+--
+return { name="DLG-Num", options=options, create=create, update=update, refresh=refresh, background=background }
